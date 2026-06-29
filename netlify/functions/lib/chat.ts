@@ -27,7 +27,8 @@ export function formatEvent(event: FetchedEvent): string {
       return `${emoji} ${app} has been installed on ${shop} (${domain}).`;
     case "RELATIONSHIP_UNINSTALLED": {
       const reason = event.reason ? ` Reason: ${event.reason}.` : "";
-      return `${emoji} ${app} has been uninstalled from ${shop} (${domain}).${reason}`;
+      const description = event.description ? ` (${event.description})` : "";
+      return `${emoji} ${app} has been uninstalled from ${shop} (${domain}).${reason}${description}`;
     }
     case "RELATIONSHIP_REACTIVATED":
       return `${emoji} ${app} has been reinstalled on ${shop} (${domain}).`;
@@ -36,15 +37,15 @@ export function formatEvent(event: FetchedEvent): string {
     case "SUBSCRIPTION_CHARGE_ACTIVATED":
       return `${emoji} ${shop} (${domain}) has subscribed to ${chargeName ?? "a plan"}${amount ? ` (${amount})` : ""} for ${app}.`;
     case "SUBSCRIPTION_CHARGE_CANCELED":
-      return `${emoji} ${shop} (${domain}) has unsubscribed for ${app}.`;
+      return `${emoji} ${shop} (${domain}) has unsubscribed from ${chargeName ?? "a plan"} for ${app}.`;
     case "SUBSCRIPTION_CHARGE_FROZEN":
-      return `${emoji} ${shop} (${domain})'s subscription for ${app} has been frozen.`;
+      return `${emoji} ${shop} (${domain})'s ${chargeName ?? ""} subscription for ${app} has been frozen.`;
     case "SUBSCRIPTION_CHARGE_UNFROZEN":
-      return `${emoji} ${shop} (${domain})'s subscription for ${app} has been unfrozen.`;
+      return `${emoji} ${shop} (${domain})'s ${chargeName ?? ""} subscription for ${app} has been unfrozen.`;
     case "SUBSCRIPTION_CHARGE_DECLINED":
-      return `${emoji} Payment failed for ${shop} (${domain}) on ${app}.`;
+      return `${emoji} Payment failed for ${shop} (${domain}) on ${chargeName ?? "a plan"} for ${app}.`;
     case "SUBSCRIPTION_CHARGE_EXPIRED":
-      return `${emoji} Trial expired for ${shop} (${domain}) on ${app}.`;
+      return `${emoji} Trial expired for ${shop} (${domain}) on ${chargeName ?? "a plan"} for ${app}.`;
     case "ONE_TIME_CHARGE_ACTIVATED":
       return `${emoji} ${shop} (${domain}) purchased ${chargeName ?? "a one-time charge"}${amount ? ` (${amount})` : ""} for ${app}.`;
     default:

@@ -14,6 +14,10 @@ const EVENT_TYPES = [
   "ONE_TIME_CHARGE_ACTIVATED",
 ];
 
+// NOTE: the live Partner API schema does not match shopify.dev's published docs here -
+// AppEventConnection only has `edges { cursor node }`, not `nodes`, and PageInfo only has
+// hasNextPage/hasPreviousPage (no endCursor) - confirmed via introspection against the
+// production schema, since the docs were wrong.
 const QUERY = `
   query GetAppEvents($appId: ID!, $occurredAtMin: DateTime!, $afterCursor: String) {
     app(id: $appId) {
@@ -26,46 +30,54 @@ const QUERY = `
       ) {
         pageInfo {
           hasNextPage
-          endCursor
         }
-        nodes {
-          type
-          occurredAt
-          ... on RelationshipInstalled {
-            shop { name myshopifyDomain }
-          }
-          ... on RelationshipUninstalled {
-            reason
-            shop { name myshopifyDomain }
-          }
-          ... on RelationshipReactivated {
-            shop { name myshopifyDomain }
-          }
-          ... on RelationshipDeactivated {
-            shop { name myshopifyDomain }
-          }
-          ... on SubscriptionChargeActivated {
-            shop { name myshopifyDomain }
-            charge { name amount { amount currencyCode } }
-          }
-          ... on SubscriptionChargeCanceled {
-            shop { name myshopifyDomain }
-          }
-          ... on SubscriptionChargeFrozen {
-            shop { name myshopifyDomain }
-          }
-          ... on SubscriptionChargeUnfrozen {
-            shop { name myshopifyDomain }
-          }
-          ... on SubscriptionChargeDeclined {
-            shop { name myshopifyDomain }
-          }
-          ... on SubscriptionChargeExpired {
-            shop { name myshopifyDomain }
-          }
-          ... on OneTimeChargeActivated {
-            shop { name myshopifyDomain }
-            charge { name amount { amount currencyCode } }
+        edges {
+          cursor
+          node {
+            type
+            occurredAt
+            ... on RelationshipInstalled {
+              shop { name myshopifyDomain }
+            }
+            ... on RelationshipUninstalled {
+              reason
+              description
+              shop { name myshopifyDomain }
+            }
+            ... on RelationshipReactivated {
+              shop { name myshopifyDomain }
+            }
+            ... on RelationshipDeactivated {
+              shop { name myshopifyDomain }
+            }
+            ... on SubscriptionChargeActivated {
+              shop { name myshopifyDomain }
+              charge { name amount { amount currencyCode } }
+            }
+            ... on SubscriptionChargeCanceled {
+              shop { name myshopifyDomain }
+              charge { name amount { amount currencyCode } }
+            }
+            ... on SubscriptionChargeFrozen {
+              shop { name myshopifyDomain }
+              charge { name amount { amount currencyCode } }
+            }
+            ... on SubscriptionChargeUnfrozen {
+              shop { name myshopifyDomain }
+              charge { name amount { amount currencyCode } }
+            }
+            ... on SubscriptionChargeDeclined {
+              shop { name myshopifyDomain }
+              charge { name amount { amount currencyCode } }
+            }
+            ... on SubscriptionChargeExpired {
+              shop { name myshopifyDomain }
+              charge { name amount { amount currencyCode } }
+            }
+            ... on OneTimeChargeActivated {
+              shop { name myshopifyDomain }
+              charge { name amount { amount currencyCode } }
+            }
           }
         }
       }
@@ -78,6 +90,7 @@ export interface AppEventNode {
   occurredAt: string;
   shop: { name: string; myshopifyDomain: string };
   reason?: string;
+  description?: string;
   charge?: { name: string; amount: { amount: string; currencyCode: string } };
 }
 
@@ -90,8 +103,8 @@ interface AppEventsResponse {
     app: {
       name: string;
       events: {
-        pageInfo: { hasNextPage: boolean; endCursor: string | null };
-        nodes: AppEventNode[];
+        pageInfo: { hasNextPage: boolean };
+        edges: Array<{ cursor: string; node: AppEventNode }>;
       };
     } | null;
   };
@@ -133,12 +146,12 @@ export async function fetchAppEvents(appId: string, occurredAtMin: string): Prom
 
     const appName = json.data.app.name;
     const page = json.data.app.events;
-    for (const node of page.nodes) {
-      events.push({ ...node, appName });
+    for (const edge of page.edges) {
+      events.push({ ...edge.node, appName });
     }
 
-    if (!page.pageInfo.hasNextPage) break;
-    afterCursor = page.pageInfo.endCursor;
+    if (!page.pageInfo.hasNextPage || page.edges.length === 0) break;
+    afterCursor = page.edges[page.edges.length - 1].cursor;
 
     // stay well under the 4 req/sec partner API rate limit
     await sleep(300);
