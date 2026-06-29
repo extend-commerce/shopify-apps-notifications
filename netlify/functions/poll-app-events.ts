@@ -14,13 +14,22 @@ export default async () => {
     return new Response("no app ids configured", { status: 200 });
   }
 
-  const state = await loadState();
+  let state;
+  try {
+    state = await loadState();
+  } catch (err) {
+    console.error("Failed to load poll state from Blobs:", err);
+    return new Response("failed to load state", { status: 500 });
+  }
+  console.log(`Polling ${appIds.length} apps since ${state.lastCheckedAt}`);
+
   const allEvents: FetchedEvent[] = [];
   const failedApps: string[] = [];
 
   for (const appId of appIds) {
     try {
       const events = await fetchAppEvents(appId, state.lastCheckedAt);
+      console.log(`App ${appId}: fetched ${events.length} event(s)`);
       allEvents.push(...events);
     } catch (err) {
       console.error(`Failed to poll app ${appId}:`, err);
@@ -38,11 +47,15 @@ export default async () => {
     .filter(({ key }) => !seen.has(key))
     .sort((a, b) => a.event.occurredAt.localeCompare(b.event.occurredAt));
 
-  for (const { event } of newEvents) {
+  console.log(`${allEvents.length} event(s) fetched, ${newEvents.length} new after dedup`);
+
+  let posted = 0;
+  for (const { event, key } of newEvents) {
     try {
       await postToGoogleChat(formatEvent(event));
+      posted += 1;
     } catch (err) {
-      console.error("Failed to post to Google Chat:", err);
+      console.error(`Failed to post event ${key} to Google Chat:`, err);
     }
   }
 
@@ -50,13 +63,18 @@ export default async () => {
     if (newEvents.length > 0) {
       const maxOccurredAt = newEvents[newEvents.length - 1].event.occurredAt;
       const seenKeysAtMax = newEvents.filter(({ event }) => event.occurredAt === maxOccurredAt).map(({ key }) => key);
-      await saveState({ lastCheckedAt: maxOccurredAt, seenKeys: seenKeysAtMax });
+      try {
+        await saveState({ lastCheckedAt: maxOccurredAt, seenKeys: seenKeysAtMax });
+        console.log(`Saved state: lastCheckedAt=${maxOccurredAt}, seenKeys=${seenKeysAtMax.length}`);
+      } catch (err) {
+        console.error("Failed to save poll state to Blobs:", err);
+      }
     }
   } else {
     console.error(`Skipped advancing lastCheckedAt due to failures in apps: ${failedApps.join(", ")}`);
   }
 
-  return new Response(JSON.stringify({ posted: newEvents.length, failedApps }), {
+  return new Response(JSON.stringify({ fetched: allEvents.length, posted, failedApps }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
