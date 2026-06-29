@@ -120,26 +120,8 @@ export async function fetchAppEvents(appId: string, occurredAtMin: string): Prom
   let afterCursor: string | null = null;
 
   while (true) {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": token,
-      },
-      body: JSON.stringify({
-        query: QUERY,
-        variables: { appId, occurredAtMin, afterCursor },
-      }),
-    });
+    const json = await requestWithRetry(endpoint, token, appId, occurredAtMin, afterCursor);
 
-    if (!res.ok) {
-      throw new Error(`Partner API HTTP ${res.status} for app ${appId}: ${await res.text()}`);
-    }
-
-    const json = (await res.json()) as AppEventsResponse;
-    if (json.errors?.length) {
-      throw new Error(`Partner API error for app ${appId}: ${json.errors.map((e) => e.message).join("; ")}`);
-    }
     if (!json.data?.app) {
       throw new Error(`App ${appId} not found or inaccessible`);
     }
@@ -160,12 +142,61 @@ export async function fetchAppEvents(appId: string, occurredAtMin: string): Prom
   return events;
 }
 
+const MAX_RETRIES = 4;
+
+async function requestWithRetry(
+  endpoint: string,
+  token: string,
+  appId: string,
+  occurredAtMin: string,
+  afterCursor: string | null,
+): Promise<AppEventsResponse> {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": token,
+      },
+      body: JSON.stringify({
+        query: QUERY,
+        variables: { appId, occurredAtMin, afterCursor },
+      }),
+    });
+
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      const retryAfterSeconds = Number(res.headers.get("Retry-After"));
+      const backoffMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : 500 * 2 ** attempt;
+      await sleep(backoffMs);
+      continue;
+    }
+
+    if (!res.ok) {
+      throw new Error(`Partner API HTTP ${res.status} for app ${appId}: ${await res.text()}`);
+    }
+
+    const json = (await res.json()) as AppEventsResponse;
+    if (json.errors?.length) {
+      const isRateLimited = json.errors.some((e) => e.message === "Too many requests");
+      if (isRateLimited && attempt < MAX_RETRIES) {
+        await sleep(500 * 2 ** attempt);
+        continue;
+      }
+      throw new Error(`Partner API error for app ${appId}: ${json.errors.map((e) => e.message).join("; ")}`);
+    }
+
+    return json;
+  }
+
+  throw new Error(`Partner API rate limit retries exhausted for app ${appId}`);
+}
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required env var: ${name}`);
   return value;
 }
 
-function sleep(ms: number): Promise<void> {
+export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
